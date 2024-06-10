@@ -1,65 +1,53 @@
-# pip install streamlit fbprophet yfinance plotly
 import streamlit as st
-from datetime import date
-
 import yfinance as yf
-from fbprophet import Prophet
-from fbprophet.plot import plot_plotly
-from plotly import graph_objs as go
+import pandas as pd
+import plotly.graph_objs as go
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
-START = "2015-01-01"
-TODAY = date.today().strftime("%Y-%m-%d")
-
-st.title('Stock Forecast App')
-
-stocks = ('GOOG', 'AAPL', 'MSFT', 'GME')
-selected_stock = st.selectbox('Select dataset for prediction', stocks)
-
-n_years = st.slider('Years of prediction:', 1, 4)
-period = n_years * 365
-
-
-@st.cache
+# Fetching stock data
+@st.cache_data
 def load_data(ticker):
-    data = yf.download(ticker, START, TODAY)
+    data = yf.download(ticker, start='2010-01-01', end='2023-12-31')
     data.reset_index(inplace=True)
     return data
 
-	
-data_load_state = st.text('Loading data...')
-data = load_data(selected_stock)
-data_load_state.text('Loading data... done!')
+st.title('Stock Market Predictions')
+ticker = st.text_input('Enter Stock Ticker', 'AAPL')
+data = load_data(ticker)
 
 st.subheader('Raw data')
 st.write(data.tail())
 
 # Plot raw data
 def plot_raw_data():
-	fig = go.Figure()
-	fig.add_trace(go.Scatter(x=data['Date'], y=data['Open'], name="stock_open"))
-	fig.add_trace(go.Scatter(x=data['Date'], y=data['Close'], name="stock_close"))
-	fig.layout.update(title_text='Time Series data with Rangeslider', xaxis_rangeslider_visible=True)
-	st.plotly_chart(fig)
-	
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=data['Date'], y=data['Close'], name='Stock Close'))
+    fig.layout.update(title_text='Time Series Data', xaxis_rangeslider_visible=True)
+    st.plotly_chart(fig)
+
 plot_raw_data()
 
-# Predict forecast with Prophet.
+# Forecasting with Exponential Smoothing
 df_train = data[['Date','Close']]
-df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
+df_train = df_train.set_index('Date')
 
-m = Prophet()
-m.fit(df_train)
-future = m.make_future_dataframe(periods=period)
-forecast = m.predict(future)
+model = ExponentialSmoothing(df_train['Close'], trend='add', seasonal='add', seasonal_periods=365)
+fit = model.fit()
 
-# Show and plot forecast
-st.subheader('Forecast data')
-st.write(forecast.tail())
-    
-st.write(f'Forecast plot for {n_years} years')
-fig1 = plot_plotly(m, forecast)
-st.plotly_chart(fig1)
+# Predicting future values
+pred_periods = 365
+forecast = fit.forecast(pred_periods)
+forecast_dates = pd.date_range(start=df_train.index[-1], periods=pred_periods + 1, closed='right')
 
-st.write("Forecast components")
-fig2 = m.plot_components(forecast)
-st.write(fig2)
+forecast_df = pd.DataFrame({'Date': forecast_dates, 'Forecast': forecast})
+forecast_df.reset_index(drop=True, inplace=True)
+
+# Plot forecast data
+def plot_forecast_data():
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=data['Date'], y=data['Close'], name='Stock Close'))
+    fig.add_trace(go.Scatter(x=forecast_df['Date'], y=forecast_df['Forecast'], name='Forecast'))
+    fig.layout.update(title_text='Forecasted Data', xaxis_rangeslider_visible=True)
+    st.plotly_chart(fig)
+
+plot_forecast_data()
